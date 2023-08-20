@@ -1,0 +1,232 @@
+# Domain for your workstation
+domain: example.com
+
+# Values based on provisioning mechanism
+aws:
+  efs: false
+
+# Authentication (used across subsystems)
+authentication:
+  username: workstation
+  # Change me!
+  password: M@inz!DE
+
+# Network policies and OPA constraint templates
+policies:
+  enabled: true
+
+# Defaults applied to most pods
+podDefaults:
+  automountServiceAccountToken: false
+  serviceAccountName: workstation-default
+
+# Certbot for automated TLS certificate provisioning
+certbot:
+  enabled: true
+  # Valid types are "google", "aws", and "cloudflare"
+  type: google
+  email: admin@example.com
+  runsOnStandardVMs: true
+  runsOnSpotVMs: false
+  runsOnPreemptibleVMs: false
+  resources: {}
+
+# For various seeding and initialization jobs
+initializers:
+  image: khulnasoft-lab/cloudformat-initializers:v0.17.4
+  resources: {}
+
+# Keycloak
+keycloak:
+  resources: {}
+  operator:
+    image: quay.io/keycloak/keycloak-operator:18.0.0
+    runsOnStandardVMs: true
+    runsOnSpotVMs: false
+    runsOnPreemptibleVMs: false
+    resources: {}
+  postgres:
+    resources: {}
+
+# For protecting oauth2 proxied subsystems
+oauth2Proxy:
+  enabled: true
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.3.0
+  runsOnStandardVMs: true
+  runsOnSpotVMs: false
+  runsOnPreemptibleVMs: false
+  resources: {}
+
+# Code Server
+code:
+  enabled: true
+  image: khulnasoft-lab/cloudformat-code-server:v0.17.4
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  storage: 32Gi
+  resources: {}
+  dind:
+    image: docker:20-dind
+    storage: 16Gi
+    resources: {}
+
+# PgWeb
+pgweb:
+  enabled: false
+  image: khulnasoft-lab/cloudformat-pgweb:v0.17.4
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  resources: {}
+
+# SFTP server
+sftp:
+  enabled: false
+  image: atmoz/sftp:debian
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  storage: 32Gi
+  resources: {}
+
+# Selenium Grid
+selenium:
+  enabled: false
+  hub:
+    image: selenium/hub:4.2
+    runsOnStandardVMs: true
+    runsOnSpotVMs: true
+    runsOnPreemptibleVMs: true
+    resources: {}
+  chrome:
+    enabled: false
+    image: selenium/node-chrome:4.2
+    runsOnStandardVMs: true
+    runsOnSpotVMs: true
+    runsOnPreemptibleVMs: true
+    resources: {}
+  firefox:
+    enabled: false
+    image: selenium/node-firefox:4.2
+    runsOnStandardVMs: true
+    runsOnSpotVMs: true
+    runsOnPreemptibleVMs: true
+    resources: {}
+  edge:
+    enabled: false
+    image: selenium/node-edge:4.2
+    runsOnStandardVMs: true
+    runsOnSpotVMs: true
+    runsOnPreemptibleVMs: true
+    resources: {}
+
+# Jupyter notebook
+jupyter:
+  enabled: false
+  image: khulnasoft-lab/cloudformat-jupyter:v0.17.4
+  storage: 32Gi
+  gpu:
+    enabled: false
+    # If you are using the provided terraform provisioning, this value
+    # should match the gcp_gpu variable value
+    name: nvidia-tesla-t4
+  resources: {}
+    # requests:
+    #   cpu: 0
+    #   memory: 0
+    #   nvidia.com/gpu: 1
+    # limits:
+    #   cpu: 4
+    #   memory: 8Gi
+    #   nvidia.com/gpu: 1
+
+# Landing page
+landing:
+  enabled: false
+  image: gcr.io/google-samples/hello-app:2.0
+  targetPort: 8080
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  resources: {}
+
+# SonarQube
+sonarqube:
+  enabled: false
+  initContainers:
+    resources: {}
+  postgresql:
+    resources: {}
+  resources: {}
+
+# Apache Guacamole
+guacamole:
+  enabled: false
+  image: guacamole/guacamole:1.4.0
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  resources: {}
+  guacd:
+    image: guacamole/guacd:1.4.0
+    resources: {}
+  postgres:
+    image: postgres:9.6
+    storage: 16Gi
+    resources: {}
+
+# Kanboard
+kanboard:
+  enabled: false
+  image: kanboard/kanboard:v1.2.22
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  storage: 128Gi
+  resources: {}
+
+# Prometheus
+prometheus:
+  enabled: false
+  image: prom/prometheus:v2.36.1
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  storage: 16Gi
+  resources: {}
+  kubeStateMetrics:
+    enabled: false
+    image: quay.io/coreos/kube-state-metrics:v1.9.8
+    runsOnStandardVMs: true
+    runsOnSpotVMs: true
+    runsOnPreemptibleVMs: true
+    resources: {}
+
+# Grafana
+grafana:
+  enabled: false
+  image: grafana/grafana:8.5.6
+  dashboards:
+    prometheus:
+      plugin:
+      - dashboards/prometheus_stats.json
+      - dashboards/prometheus_2_stats.json
+      - dashboards/grafana_stats.json
+      community:
+      - 13332
+  runsOnStandardVMs: true
+  runsOnSpotVMs: true
+  runsOnPreemptibleVMs: true
+  storage: 8Gi
+  resources: {}
+
+# Redis for OAuth2 Proxy session storage
+redis:
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    podLabels:
+      app: redis-master
+    resources: {}

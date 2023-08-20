@@ -1,0 +1,42 @@
+name: conftest
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  conftest:
+    runs-on: ubuntu-latest
+    steps:
+    - name: code checkout
+      uses: actions/checkout@v2
+      with:
+        submodules: 'true'
+
+    - name: Install conftest
+      run: |
+        wget https://github.com/open-policy-agent/conftest/releases/download/v0.32.1/conftest_0.32.1_Linux_x86_64.tar.gz
+        tar xzf conftest_0.32.1_Linux_x86_64.tar.gz
+        mv conftest /usr/local/bin
+
+    - name: Policy checks for Code Server
+      working-directory: ./build
+      run: |
+        conftest test code-server/Dockerfile
+
+    - name: Policy checks for Initializers
+      working-directory: ./build
+      run: |
+        conftest test initializers/Dockerfile
+
+    - name: Policy checks for Jupyter
+      working-directory: ./build
+      run: |
+        conftest test jupyter/Dockerfile
+
+    - name: Policy checks for Pgweb
+      working-directory: ./build
+      run: |
+        conftest test pgweb/Dockerfile

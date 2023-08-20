@@ -1,0 +1,487 @@
+{{- $clientSecret := include "rand32" . }}
+{{- $cookieSecret := include "rand16" . }}
+{{ if eq .Values.oauth2Proxy.enabled true }}
+apiVersion: keycloak.org/v1alpha1
+kind: Keycloak
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  instances: 1
+  externalAccess:
+    enabled: false
+  keycloakDeploymentSpec:
+    resources: {{ toYaml .Values.keycloak.resources | nindent 6 }}
+  postgresDeploymentSpec:
+    resources: {{ toYaml .Values.keycloak.postgres.resources | nindent 6 }}
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakRealm
+metadata:
+  name: keycloak-realm
+  labels:
+    app: keycloak-realm
+spec:
+  realm:
+    id: workstation
+    realm: workstation
+    enabled: True
+    displayName: "Workstation Realm"
+    roles:
+      realm:
+      - name: admin
+  instanceSelector:
+    matchLabels:
+      app: keycloak
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakClient
+metadata:
+  name: keycloak-client
+  labels:
+    app: keycloak-client
+spec:
+  roles:
+  - clientRole: true
+    containerId: workstation
+    name: user
+    composite: false
+  - clientRole: true
+    containerId: workstation
+    name: admin
+    composite: false
+  - clientRole: true
+    containerId: workstation
+    name: manager
+    composite: false
+  client:
+    clientId: workstation
+    secret: {{ $clientSecret }}
+    standardFlowEnabled: true
+    redirectUris:
+    - "*"
+    fullScopeAllowed: true
+    defaultClientScopes:
+      - web-origins
+      - role_list
+      - profile
+      - roles
+      - email
+    optionalClientScopes:
+      - address
+      - phone
+      - offline_access
+      - microprofile-jwt
+  realmSelector:
+     matchLabels:
+      app: keycloak-realm
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakUser
+metadata:
+  name: workstation-user
+spec:
+  user:
+    username: {{ .Values.authentication.username }}
+    firstName: "Workstation"
+    lastName: "User"
+    email: "admin@{{ .Values.domain }}"
+    enabled: True
+    emailVerified: True
+    credentials:
+    - type: password
+      value: {{ .Values.authentication.password }}
+    clientRoles:
+      account:
+      - manage-account
+      - view-profile
+      workstation:
+      - admin
+      - manager
+      - user
+    realmRoles:
+    - offline_access
+    - uma_authorization
+  realmSelector:
+    matchLabels:
+      app: keycloak-realm
+---
+# https://github.com/keycloak/keycloak-operator/blob/master/deploy/operator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-operator
+  template:
+    metadata:
+      labels:
+        app: keycloak-operator
+    spec:
+      serviceAccountName: keycloak-operator
+      {{ include "affinity" .Values.keycloak.operator | indent 6 }}
+      {{ include "tolerations" .Values.keycloak.operator | indent 6 }}
+      containers:
+      - name: keycloak-operator
+        image: {{ .Values.keycloak.operator.image }}
+        command:
+        - keycloak-operator
+        resources: {{ toYaml .Values.keycloak.operator.resources | nindent 10 }}
+        env:
+          - name: WATCH_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: OPERATOR_NAME
+            value: "keycloak-operator"
+---
+# https://github.com/keycloak/keycloak-operator/blob/master/deploy/role_binding.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: keycloak-operator
+subjects:
+- kind: ServiceAccount
+  name: keycloak-operator
+roleRef:
+  kind: Role
+  name: keycloak-operator
+  apiGroup: rbac.authorization.k8s.io
+---
+# https://github.com/keycloak/keycloak-operator/blob/master/deploy/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: keycloak-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - services/finalizers
+  - endpoints
+  - persistentvolumeclaims
+  - events
+  - configmaps
+  - secrets
+  verbs:
+  - list
+  - get
+  - create
+  - patch
+  - update
+  - watch
+  - delete
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - list
+  - get
+  - create
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+    - cronjobs
+    - jobs
+  verbs:
+    - list
+    - get
+    - create
+    - update
+    - watch
+- apiGroups:
+    - route.openshift.io
+  resources:
+    - routes/custom-host
+  verbs:
+    - create
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - list
+  - get
+  - create
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - list
+  - get
+  - create
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  - prometheusrules
+  verbs:
+  - list
+  - get
+  - create
+  - update
+  - watch
+- apiGroups:
+  - integreatly.org
+  resources:
+  - grafanadashboards
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resourceNames:
+  - keycloak-operator
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - watch
+- apiGroups:
+  - keycloak.org
+  resources:
+  - keycloaks
+  - keycloaks/status
+  - keycloaks/finalizers
+  - keycloakrealms
+  - keycloakrealms/status
+  - keycloakrealms/finalizers
+  - keycloakclients
+  - keycloakclients/status
+  - keycloakclients/finalizers
+  - keycloakbackups
+  - keycloakbackups/status
+  - keycloakbackups/finalizers
+  - keycloakusers
+  - keycloakusers/status
+  - keycloakusers/finalizers
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+---
+# https://github.com/keycloak/keycloak-operator/blob/master/deploy/service_account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak-operator
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-postgres
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+      component: database
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: keycloak
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+      component: keycloak
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: keycloak
+          component: database
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-operator
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak-operator
+  policyTypes:
+  - Ingress
+  - Egress
+  egress:
+  - {}
+{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  labels:
+    app: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+    spec:
+      {{ toYaml .Values.podDefaults | nindent 6 }}
+      {{ include "affinity" .Values.oauth2Proxy | indent 6 }}
+      {{ include "tolerations" .Values.oauth2Proxy | indent 6 }}
+      containers:
+      - name: oauth2-proxy
+        image: {{ .Values.oauth2Proxy.image }}
+        args:
+        - "--session-cookie-minimal"
+        - "--session-store-type=redis"
+        - "--redis-connection-url=redis://{{ .Release.Name }}-redis-master:6379"
+        ports:
+        - containerPort: 4180
+        resources: {{ toYaml .Values.oauth2Proxy.resources | nindent 10 }}
+        env:
+          # OIDC Config
+          - name: "OAUTH2_PROXY_SCOPE"
+            value: "openid profile"
+          - name: "OAUTH2_PROXY_PROVIDER"
+            value: "oidc"
+          - name: "OAUTH2_PROXY_OIDC_ISSUER_URL"
+            value: "https://keycloak.{{ .Values.domain }}/auth/realms/workstation"
+          - name: "OAUTH2_PROXY_CLIENT_ID"
+            value: workstation
+          - name: "OAUTH2_PROXY_CLIENT_SECRET"
+            value: {{ $clientSecret }}
+          # Cookie Config
+          - name: "OAUTH2_PROXY_COOKIE_SECRET"
+            value: "{{ $cookieSecret }}"
+          - name: "OAUTH2_PROXY_COOKIE_DOMAINS"
+            value: ".{{ .Values.domain }}"
+          # Proxy config
+          - name: "OAUTH2_PROXY_EMAIL_DOMAINS"
+            value: "*"
+          - name: "OAUTH2_PROXY_WHITELIST_DOMAINS"
+            value: ".{{ .Values.domain }}"
+          - name: "OAUTH2_PROXY_HTTP_ADDRESS"
+            value: "0.0.0.0:4180"
+          - name: "OAUTH2_PROXY_SET_XAUTHREQUEST"
+            value: "true"
+          - name: "OAUTH2_PROXY_UPSTREAMS"
+            value: "file:///dev/null"
+---
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: oauth2-proxy
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: oauth2-proxy
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Object
+    object:
+      metric:
+        name: requests-per-second
+      describedObject:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        name: oauth2-proxy
+      target:
+        type: Value
+        value: 5k
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  labels:
+    app: oauth2-proxy
+spec:
+  selector:
+    app: oauth2-proxy
+  ports:
+  - name: http
+    port: 4180
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oauth2-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app: oauth2-proxy
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  - to:
+    - podSelector:
+        matchLabels:
+          app: keycloak
+          component: keycloak
+{{ end }}
+{{ end }}

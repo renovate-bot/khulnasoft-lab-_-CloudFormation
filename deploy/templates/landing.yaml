@@ -1,0 +1,59 @@
+{{ if eq .Values.landing.enabled true }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: landing
+  labels:
+    app: landing
+spec:
+  type: ClusterIP
+  ports:
+  - name: landing
+    port: 80
+    targetPort: {{ .Values.landing.targetPort }}
+  selector:
+    app: landing
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: landing
+  labels:
+    app: landing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: landing
+  template:
+    metadata:
+      labels:
+        app: landing
+    spec:
+      {{ toYaml .Values.podDefaults | nindent 6 }}
+      {{ include "affinity" .Values.landing | indent 6 }}
+      {{ include "tolerations" .Values.landing | indent 6 }}
+      containers:
+      - name: landing
+        image: {{ .Values.landing.image }}
+        resources: {{ toYaml .Values.landing.resources | nindent 10 }}
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: landing
+spec:
+  podSelector:
+    matchLabels:
+      app: landing
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+{{ end }}
+{{ end }}

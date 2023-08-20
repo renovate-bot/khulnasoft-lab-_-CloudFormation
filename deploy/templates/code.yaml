@@ -1,0 +1,173 @@
+{{ if eq .Values.code.enabled true }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: code
+  labels:
+    app: code
+spec:
+  type: ClusterIP
+  ports:
+  - name: code
+    port: 80
+    targetPort: 8080
+  selector:
+    app: code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-dev-server
+  labels:
+    app: code
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 1313
+  selector:
+    app: code
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code
+  labels:
+    app: code
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: code
+  template:
+    metadata:
+      labels:
+        app: code
+    spec:
+      {{ toYaml .Values.podDefaults | nindent 6 }}
+      {{ include "affinity" .Values.code | indent 6 }}
+      {{ include "tolerations" .Values.code | indent 6 }}
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - image: {{ .Values.code.image }}
+        name: code
+        ports:
+        - name: ide
+          containerPort: 8080
+        - name: hugo
+          containerPort: 1313
+        env:
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+        - name: PASSWORD
+          value: "{{ .Values.authentication.password }}"
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+        resources: {{ toYaml .Values.code.resources | nindent 10 }}
+        volumeMounts:
+        - name: coder
+          mountPath: /home/coder
+          subPath: home/coder
+        - name: coder-profile
+          mountPath: /home/coder/.profile
+          subPath: .profile
+      - name: dind-daemon
+        image: {{ .Values.code.dind.image }}
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""
+        securityContext:
+          privileged: true
+        resources: {{ toYaml .Values.code.dind.resources | nindent 10 }}
+        volumeMounts:
+          - name: code-dind-pv
+            mountPath: /var/lib/docker
+            subPath: var/lib/docker
+      volumes:
+      - name: coder
+        persistentVolumeClaim:
+          claimName: coder-pvc
+      - name: code-dind-pv
+        persistentVolumeClaim:
+          claimName: code-dind-pvc
+      - name: coder-profile
+        configMap:
+          name: coder-profile-v2
+          defaultMode: 0644
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: code-server
+spec:
+  podSelector:
+    matchLabels:
+      app: code
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  egress:
+  - {}
+{{ end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: coder-pvc
+  labels:
+    app: code
+spec:
+{{ if eq .Values.aws.efs false }}
+  accessModes:
+    - ReadWriteOnce
+{{ end }}
+{{ if eq .Values.aws.efs true }}
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+{{ end }}
+  resources:
+    requests:
+      storage: {{ .Values.code.storage }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-dind-pvc
+spec:
+{{ if eq .Values.aws.efs false }}
+  accessModes:
+    - ReadWriteOnce
+{{ end }}
+{{ if eq .Values.aws.efs true }}
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+{{ end }}
+  resources:
+    requests:
+      storage: {{ .Values.code.dind.storage }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-profile-v2
+data:
+  .profile: |
+    . "$HOME/.bashrc"
+    PATH="$HOME/bin:$PATH"
+    PATH="$HOME/.local/bin:$PATH"
+    PATH="/usr/local/go/bin:$PATH"
+{{ end }}

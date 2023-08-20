@@ -1,0 +1,25 @@
+# Dev and lock files
+.idea/
+*.lock
+
+# Hydrated skaffold development configuration
+skaffold.yaml
+
+# Chart dependencies
+**/charts/*.tgz
+
+# Local .terraform directories
+**/.terraform/*
+
+# Terrform files
+*.tfstate
+*.tfstate.*
+**/.terraform.lock.hcl
+provision/**/kubeconfig*
+
+# Key files
+google.json
+build.json
+cloudflare.ini
+config
+client.ovpn

@@ -1,0 +1,135 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: code checkout
+      uses: actions/checkout@v2
+      with:
+        submodules: 'true'
+
+    - name: Install gcloud cli
+      uses: google-github-actions/setup-gcloud@v0
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        export_default_credentials: true
+        install_components: 'gke-gcloud-auth-plugin'
+
+    - name: Install terraform cli
+      uses: hashicorp/setup-terraform@v1
+      with:
+        terraform_version: 1.2.3
+
+    - name: Provision a GKE cluster
+      working-directory: ./provision/gke/
+      run: |
+        terraform init
+        terraform apply -auto-approve -var cluster_name=cloudformat-$GITHUB_RUN_NUMBER
+
+    - name: Install helm
+      env:
+        USE_GKE_GCLOUD_AUTH_PLUGIN: True
+      run: |
+        gcloud container clusters get-credentials cloudformat-$GITHUB_RUN_NUMBER --zone us-central1-a
+        alias helm="docker run -ti --rm -v $(pwd):/apps -v ~/.kube:/root/.kube -v ~/.helm:/root/.helm alpine/helm:3.5.4"
+
+    - name: Install workstation prerequisites
+      working-directory: ./prepare/chart/
+      run: |
+        helm dep update
+        helm install workstation-prerequisites . \
+            --namespace kube-system \
+            --wait
+
+    - name: Install OPA CRDs
+      run: |
+        kubectl apply -f prepare/crds/constraint-templates.yaml --wait
+
+    - name: Setup namespaces
+      run: |
+        kubectl create namespace workstation-one
+        kubectl create namespace workstation-two
+
+    - name: Update Helm dependencies
+      working-directory: ./deploy/
+      run: |
+        helm dep update
+
+    - name: Deploy a workstation
+      working-directory: ./deploy/
+      run: |
+        helm install workstation . \
+            --namespace workstation-one \
+            --set domain=a.example.com \
+            --set certbot.enabled=false \
+            --set oauth2Proxy.enabled=false \
+            --set pgweb.enabled=true \
+            --set sftp.enabled=true \
+            --set selenium.enabled=true \
+            --set selenium.chrome.enabled=true \
+            --set selenium.firefox.enabled=true \
+            --set selenium.edge.enabled=true \
+            --set jupyter.enabled=true \
+            --set landing.enabled=true \
+            --set sonarqube.enabled=true \
+            --set guacamole.enabled=true \
+            --set kanboard.enabled=true \
+            --set prometheus.enabled=true \
+            --set grafana.enabled=true \
+            --timeout 10m0s \
+            --wait
+
+    - name: Deploy another workstation
+      working-directory: ./deploy/
+      run: |
+        helm install workstation . \
+            --namespace workstation-two \
+            --set domain=b.example.com \
+            --set certbot.enabled=false \
+            --set oauth2Proxy.enabled=false \
+            --set pgweb.enabled=true \
+            --set sftp.enabled=true \
+            --set selenium.enabled=true \
+            --set selenium.chrome.enabled=true \
+            --set selenium.firefox.enabled=true \
+            --set selenium.edge.enabled=true \
+            --set jupyter.enabled=true \
+            --set landing.enabled=true \
+            --set sonarqube.enabled=true \
+            --set guacamole.enabled=true \
+            --set kanboard.enabled=true \
+            --set prometheus.enabled=true \
+            --set grafana.enabled=true \
+            --timeout 10m0s \
+            --wait
+
+    - name: Undeploy the first workstation
+      run: |
+        helm uninstall workstation \
+            --namespace workstation-one \
+            --wait
+
+    - name: Undeploy the second workstation
+      run: |
+        helm uninstall workstation \
+            --namespace workstation-two \
+            --wait
+
+    - name: Undeploy the workstation prerequisites
+      run: |
+        helm uninstall workstation-prerequisites \
+            --namespace kube-system \
+            --wait
+
+    - name: Deprovision
+      working-directory: ./provision/gke/
+      run: |
+        terraform destroy -auto-approve

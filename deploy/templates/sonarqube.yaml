@@ -1,0 +1,57 @@
+{{ if eq .Values.sonarqube.enabled true }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 9000
+  selector:
+    app: sonarqube
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sonarqube
+spec:
+  podSelector:
+    matchLabels:
+      app: sonarqube
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  - from:
+    - podSelector:
+        matchLabels:
+          app: code
+  egress:
+  - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sonarqube-postgresql
+spec:
+  podSelector:
+    matchLabels:
+      app: postgresql
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: sonarqube
+{{ end }}
+{{ end }}

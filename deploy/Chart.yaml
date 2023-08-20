@@ -1,0 +1,13 @@
+apiVersion: v2
+name: cloudformat
+version: 0.17.4
+icon: https://raw.githubusercontent.com/khulnasoft-lab/cloudformat/master/images/cnw.png
+dependencies:
+- name: sonarqube
+  version: 9.9.2
+  repository: https://oteemo.github.io/charts/
+  condition: sonarqube.enabled
+- name: redis
+  version: 17.4.0
+  repository: https://charts.bitnami.com/bitnami/
+  condition: oauth2Proxy.enabled

@@ -1,0 +1,422 @@
+{{ if eq .Values.certbot.enabled true }}
+{{ if eq .Values.certbot.type "google" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: certbot-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: certbot
+    spec:
+      serviceAccountName: sa-ssl
+      {{ include "affinity" .Values.certbot | indent 6 }}
+      {{ include "tolerations" .Values.certbot | indent 6 }}
+      initContainers:
+      - name: certbot
+        image: certbot/dns-google:v1.22.0
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+            certbot certonly --dns-google --dns-google-credentials /home/certbot/.secrets/certbot/google.json \
+              -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: google-json
+          mountPath: /home/certbot/.secrets/certbot/
+          readOnly: true
+        - name: ssl
+          mountPath: /etc/ssl
+      containers:
+      - name: ssl-secret-creation
+        image: bitnami/kubectl:1.20
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+            kubectl create secret tls workstation-tls \
+              --dry-run -o yaml \
+              --cert=/etc/ssl/fullchain.pem \
+              --key=/etc/ssl/privkey.pem | kubectl apply -f -
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: ssl
+          mountPath: /etc/ssl
+      volumes:
+      - name: google-json
+        secret:
+          secretName: google-json
+          defaultMode: 0400
+      - name: ssl
+        emptyDir: {}
+      restartPolicy: OnFailure
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: certbot
+spec:
+  # generate a new ssl certificate every 60 days
+  schedule: "0 11 12 */2 *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: certbot
+        spec:
+          serviceAccountName: sa-ssl
+          {{ include "affinity" .Values.certbot | indent 10 }}
+          {{ include "tolerations" .Values.certbot | indent 10 }}
+          initContainers:
+          - name: certbot
+            image: certbot/dns-google:v1.22.0
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+                certbot certonly --dns-google --dns-google-credentials /home/certbot/.secrets/certbot/google.json \
+                  -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: google-json
+              mountPath: /home/certbot/.secrets/certbot/
+              readOnly: true
+            - name: ssl
+              mountPath: /etc/ssl
+          containers:
+          - name: ssl-secret-creation
+            image: bitnami/kubectl:1.20
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+                kubectl create secret tls workstation-tls \
+                  --dry-run -o yaml \
+                  --cert=/etc/ssl/fullchain.pem \
+                  --key=/etc/ssl/privkey.pem | kubectl apply -f -
+            securityContext:
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: ssl
+              mountPath: /etc/ssl
+          volumes:
+          - name: google-json
+            secret:
+              secretName: google-json
+              defaultMode: 0400
+          - name: ssl
+            emptyDir: {}
+          restartPolicy: OnFailure
+{{ end }}
+{{ if eq .Values.certbot.type "cloudflare" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: certbot-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: certbot
+    spec:
+      serviceAccountName: sa-ssl
+      nodeSelector:
+        {{ if eq .Values.certbot.preemptible true }}
+        preemptibility: "spot"
+        {{ else }}
+        preemptibility: "none"
+        {{ end }}
+      initContainers:
+      - name: certbot
+        image: certbot/dns-cloudflare:v1.22.0
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+            certbot certonly --dns-cloudflare --dns-cloudflare-credentials /home/certbot/.secrets/certbot/cloudflare.ini \
+              -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: cloudflare-ini
+          mountPath: /home/certbot/.secrets/certbot/
+          readOnly: true
+        - name: ssl
+          mountPath: /etc/ssl
+      containers:
+      - name: ssl-secret-creation
+        image: bitnami/kubectl:1.20
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+            kubectl create secret tls workstation-tls \
+              --dry-run -o yaml \
+              --cert=/etc/ssl/fullchain.pem \
+              --key=/etc/ssl/privkey.pem | kubectl apply -f -
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: ssl
+          mountPath: /etc/ssl
+      volumes:
+      - name: cloudflare-ini
+        secret:
+          secretName: cloudflare-ini
+          defaultMode: 0400
+      - name: ssl
+        emptyDir: {}
+      restartPolicy: OnFailure
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: certbot
+spec:
+  # generate a new ssl certificate every 60 days
+  schedule: "0 11 12 */2 *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: certbot
+        spec:
+          serviceAccountName: sa-ssl
+          nodeSelector:
+            {{ if eq .Values.certbot.preemptible true }}
+            preemptibility: "spot"
+            {{ else }}
+            preemptibility: "none"
+            {{ end }}
+          initContainers:
+          - name: certbot
+            image: certbot/dns-cloudflare:v1.22.0
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+                certbot certonly --dns-cloudflare --dns-cloudflare-credentials /home/certbot/.secrets/certbot/cloudflare.ini \
+                  -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: cloudflare-ini
+              mountPath: /home/certbot/.secrets/certbot/
+              readOnly: true
+            - name: ssl
+              mountPath: /etc/ssl
+          containers:
+          - name: ssl-secret-creation
+            image: bitnami/kubectl:1.20
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+                kubectl create secret tls workstation-tls \
+                  --dry-run -o yaml \
+                  --cert=/etc/ssl/fullchain.pem \
+                  --key=/etc/ssl/privkey.pem | kubectl apply -f -
+            securityContext:
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: ssl
+              mountPath: /etc/ssl
+          volumes:
+          - name: cloudflare-ini
+            secret:
+              secretName: cloudflare-ini
+              defaultMode: 0400
+          - name: ssl
+            emptyDir: {}
+          restartPolicy: OnFailure
+{{ end }}
+{{ if eq .Values.certbot.type "aws" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: certbot-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: certbot
+    spec:
+      serviceAccountName: sa-ssl
+      nodeSelector:
+        {{ if eq .Values.certbot.preemptible true }}
+        preemptibility: "spot"
+        {{ else }}
+        preemptibility: "none"
+        {{ end }}
+      initContainers:
+      - name: certbot
+        image: certbot/dns-route53:v1.22.0
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: AWS_CONFIG_FILE
+          value: /home/certbot/.secrets/certbot/config
+        args:
+        - |
+            certbot certonly --dns-route53 \
+              -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+            cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: aws-config
+          mountPath: /home/certbot/.secrets/certbot/
+          readOnly: true
+        - name: ssl
+          mountPath: /etc/ssl
+      containers:
+      - name: ssl-secret-creation
+        image: bitnami/kubectl:1.20
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+            kubectl create secret tls workstation-tls \
+              --dry-run -o yaml \
+              --cert=/etc/ssl/fullchain.pem \
+              --key=/etc/ssl/privkey.pem | kubectl apply -f -
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        resources: {{ toYaml .Values.certbot.resources | nindent 10 }}
+        volumeMounts:
+        - name: ssl
+          mountPath: /etc/ssl
+      volumes:
+      - name: aws-config
+        secret:
+          secretName: aws-config
+          defaultMode: 0400
+      - name: ssl
+        emptyDir: {}
+      restartPolicy: OnFailure
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: certbot
+spec:
+  # generate a new ssl certificate every 60 days
+  schedule: "0 11 12 */2 *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: certbot
+        spec:
+          serviceAccountName: sa-ssl
+          nodeSelector:
+            {{ if eq .Values.certbot.preemptible true }}
+            preemptibility: "spot"
+            {{ else }}
+            preemptibility: "none"
+            {{ end }}
+          initContainers:
+          - name: certbot
+            image: certbot/dns-route53:v1.22.0
+            command: ["/bin/sh", "-c"]
+            env:
+            - name: AWS_CONFIG_FILE
+              value: /home/certbot/.secrets/certbot/config
+            args:
+            - |
+                certbot certonly --dns-route53 \
+                  -d '*.{{ .Values.domain }}' --non-interactive --agree-tos -m {{ .Values.certbot.email }} && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/fullchain.pem > /etc/ssl/fullchain.pem && \
+                cat /etc/letsencrypt/live/{{ .Values.domain }}/privkey.pem > /etc/ssl/privkey.pem
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: aws-config
+              mountPath: /home/certbot/.secrets/certbot/
+              readOnly: true
+            - name: ssl
+              mountPath: /etc/ssl
+          containers:
+          - name: ssl-secret-creation
+            image: bitnami/kubectl:1.20
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+                kubectl create secret tls workstation-tls \
+                  --dry-run -o yaml \
+                  --cert=/etc/ssl/fullchain.pem \
+                  --key=/etc/ssl/privkey.pem | kubectl apply -f -
+            securityContext:
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+            resources: {{ toYaml .Values.certbot.resources | nindent 14 }}
+            volumeMounts:
+            - name: ssl
+              mountPath: /etc/ssl
+          volumes:
+          - name: aws-config
+            secret:
+              secretName: aws-config
+              defaultMode: 0400
+          - name: ssl
+            emptyDir: {}
+          restartPolicy: OnFailure
+{{ end }}
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: certbot
+spec:
+  podSelector:
+    matchLabels:
+      app: certbot
+  policyTypes:
+  - Egress
+  egress:
+  - {}
+{{ end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-ssl
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: ssl
+subjects:
+- kind: ServiceAccount
+  name: sa-ssl
+roleRef:
+  kind: Role
+  name: ssl
+  apiGroup: ""
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: ssl
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - apply
+  - patch
+{{ end }}

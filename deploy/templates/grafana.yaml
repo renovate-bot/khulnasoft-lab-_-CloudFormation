@@ -1,0 +1,245 @@
+{{ if eq .Values.grafana.enabled true }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: grafana
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      {{ toYaml .Values.podDefaults | nindent 6 }}
+      {{ include "affinity" .Values.grafana | indent 6 }}
+      {{ include "tolerations" .Values.grafana | indent 6 }}
+      securityContext:
+        fsGroup: 472
+      containers:
+      - name: grafana
+        image: {{ .Values.grafana.image }}
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        - name: GF_SECURITY_ADMIN_USER
+          value: {{ .Values.authentication.username }}
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: {{ .Values.authentication.password }}
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-kubernetes-app"
+        resources: {{ toYaml .Values.grafana.resources | nindent 10 }}
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: prometheus-data-source
+          mountPath: /etc/grafana/provisioning/datasources/prometheus.yml
+          subPath: prometheus.yml
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-storage-pvc
+      - name: prometheus-data-source
+        configMap:
+          name: prometheus-data-source-v1
+          defaultMode: 0444
+status: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage-pvc
+  labels:
+    app: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.grafana.storage }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-data-source-v1
+data:
+  prometheus.yml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+  selector:
+    app: grafana
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-init
+  labels:
+    app: grafana-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: grafana-init
+    spec:
+      {{ toYaml .Values.podDefaults | nindent 6 }}
+      {{ include "affinity" .Values.grafana | indent 6 }}
+      {{ include "tolerations" .Values.grafana | indent 6 }}
+      containers:
+      - name: seed
+        image: {{ .Values.initializers.image }}
+        command: ["/sbin/tini", "-g", "--"]
+        args: ["bash", "/opt/seed.sh"]
+        env:
+        - name: USERNAME
+          value: {{ .Values.authentication.username }}
+        - name: PASSWORD
+          value: {{ .Values.authentication.password }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        resources: {{ toYaml .Values.initializers.resources | nindent 10 }}
+        volumeMounts:
+        - name: grafana-seed-sh
+          mountPath: /opt/seed.sh
+          subPath: seed.sh
+      volumes:
+      - name: grafana-seed-sh
+        configMap:
+          name: grafana-seed-sh
+          defaultMode: 0555
+      restartPolicy: Never
+  backoffLimit: 32
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-seed-sh
+data:
+  seed.sh: |
+    #!/bin/bash
+    # https://community.grafana.com/t/is-there-an-equivalent-http-api-to-import-a-dashboard-from-grafana-com/9581/2
+    grafana_host="http://grafana"
+    grafana_cred="$USERNAME:$PASSWORD"
+    grafana_datasource="Prometheus"
+
+    paths=({{ join " " .Values.grafana.dashboards.prometheus.plugin }} )
+    for path in "${paths[@]}"; do
+      echo "Processing $path: "
+      curl -s -k -u "$grafana_cred" -XPOST -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"overwrite\":true, \
+          \"pluginId\":\"prometheus\", \
+          \"path\":\"$path\",
+          \"inputs\":[{ \
+            \"name\":\"*\", \
+            \"type\":\"datasource\", \
+            \"pluginId\":\"prometheus\", \
+            \"value\":\"$grafana_datasource\" \
+          }] \
+          }" \
+        $grafana_host/api/dashboards/import || exit $?
+      echo ""
+    done
+
+    ds=({{ join " " .Values.grafana.dashboards.prometheus.community }} )
+    for d in "${ds[@]}"; do
+      echo "Processing $d: "
+      j=$(curl -s -k -u "$grafana_cred" $grafana_host/api/gnet/dashboards/$d | jq .json)
+      curl -s -k -u "$grafana_cred" -XPOST -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "{ \
+          \"dashboard\":$j, \
+          \"overwrite\":true, \
+          \"inputs\":[ \
+            { \
+              \"name\":\"DS_PROMETHEUS\", \
+              \"type\":\"datasource\", \
+              \"pluginId\":\"prometheus\", \
+              \"value\":\"$grafana_datasource\" \
+            }, \
+            { \
+              \"name\":\"VAR_DATASOURCE\", \
+              \"type\":\"constant\", \
+              \"value\":\"$grafana_datasource\" \
+            } \
+          ] \
+        }" \
+        $grafana_host/api/dashboards/import; echo ""
+    done
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-init
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana-init
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - {}
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: grafana
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    - namespaceSelector: {}
+  - from:
+    - podSelector:
+        matchLabels:
+          app: grafana-init
+    - podSelector:
+        matchLabels:
+          app: prometheus
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    - ipBlock:
+        # grafana.com
+        cidr: 34.120.177.193/0
+{{ end }}
+{{ end }}

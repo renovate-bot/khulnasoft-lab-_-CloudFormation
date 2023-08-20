@@ -1,0 +1,90 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: requiredlabels
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequiredLabels
+      validation:
+        openAPIV3Schema:
+          properties:
+            labels:
+              type: array
+              items: string
+  targets:
+  - target: admission.k8s.gatekeeper.sh
+    rego: |
+      package requiredlabels
+      violation[{"msg": msg, "details": {"missing_labels": missing}}] {
+        provided := {label | input.review.object.metadata.labels[label]}
+        required := {label | label := input.parameters.labels[_]}
+        missing := required - provided
+        count(missing) > 0
+        msg := sprintf("you must provide labels: %v", [missing])
+      }
+---
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: deploymentselector
+spec:
+  crd:
+    spec:
+      names:
+        kind: DeploymentSelector
+      validation:
+        openAPIV3Schema:
+          properties:
+            selector:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package deploymentselector
+        violation[{"msg": msg, "details": {"missing_selector": missing}}] {
+          not input.review.object.spec.selector.matchLabels[input.parameters.selector]
+          missing := input.parameters.selector
+          msg := sprintf("you must include the deployment label selector: %v", [input.parameters.selector])
+        }
+---
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: disallowedtags
+spec:
+  crd:
+    spec:
+      names:
+        kind: DisallowedTags
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            tags:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package disallowedtags
+        violation[{"msg": msg}] {
+          container := input_containers[_]
+          tags := [forbid | tag = input.parameters.tags[_] ; forbid = endswith(container.image, concat(":", ["", tag]))]
+          any(tags)
+          msg := sprintf("container <%v> uses a disallowed tag <%v>; disallowed tags are %v", [container.name, container.image, input.parameters.tags])
+        }
+        violation[{"msg": msg}] {
+          container := input_containers[_]
+          tag := [contains(container.image, ":")]
+          not all(tag)
+          msg := sprintf("container <%v> didn't specify an image tag <%v>", [container.name, container.image])
+        }
+        input_containers[c] {
+          c := input.review.object.spec.containers[_]
+        }
+        input_containers[c] {
+          c := input.review.object.spec.initContainers[_]
+        }

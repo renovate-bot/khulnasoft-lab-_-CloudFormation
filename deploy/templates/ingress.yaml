@@ -1,0 +1,103 @@
+{{ $root := . }}
+{{ $backends := include "backends" . | split "," }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: main
+  annotations:
+    {{ if eq .Values.oauth2Proxy.enabled true }}
+    nginx.ingress.kubernetes.io/auth-url: https://oauth2-proxy.{{ .Values.domain }}/oauth2/auth
+    nginx.ingress.kubernetes.io/auth-signin: https://oauth2-proxy.{{ .Values.domain }}/oauth2/start?rd=$scheme://$best_http_host$request_uri
+    {{ end }}
+    {{ if eq .Values.selenium.enabled true }}
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    {{ end }}
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+spec:
+  ingressClassName: workstation-nginx
+  tls:
+  - hosts:
+    {{ range $backend := $backends }}
+    - "{{ $backend }}.{{ $root.Values.domain }}"
+    {{ end }}
+    secretName: workstation-tls
+  rules:
+  {{ range $backend := $backends }}
+  - host: "{{ $backend }}.{{ $root.Values.domain }}"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: "{{ $backend }}"
+            port:
+              number: 80
+  {{ end }}
+{{ if eq .Values.oauth2Proxy.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
+spec:
+  ingressClassName: workstation-nginx
+  tls:
+  - hosts:
+    - keycloak.{{ .Values.domain }}
+    secretName: workstation-tls
+  rules:
+  - host: keycloak.{{ .Values.domain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: keycloak
+            port:
+              number: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-proxy
+spec:
+  ingressClassName: workstation-nginx
+  tls:
+  - hosts:
+    - oauth2-proxy.{{ .Values.domain }}
+    secretName: workstation-tls
+  rules:
+  - host: oauth2-proxy.{{ .Values.domain }}
+    http:
+      paths:
+      - path: /oauth2
+        pathType: Prefix
+        backend:
+          service:
+            name: oauth2-proxy
+            port:
+              number: 4180
+{{ end }}
+{{ if eq .Values.policies.enabled true }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: ingress-nginx
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - {}
+  egress:
+  - {}
+{{ end }}

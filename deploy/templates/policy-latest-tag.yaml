@@ -1,0 +1,15 @@
+{{ if eq .Values.policies.enabled true }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: DisallowedTags
+metadata:
+  name: container-image-must-not-have-latest-tag-{{ trunc 8 (print .Release.Name  "-" .Release.Namespace | sha1sum) }}
+spec:
+  match:
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    namespaces:
+    - {{ .Release.Namespace }}
+  parameters:
+    tags: ["latest"]
+{{ end }}
