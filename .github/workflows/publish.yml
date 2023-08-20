@@ -31,7 +31,7 @@ jobs:
       id: meta-code-server
       uses: docker/metadata-action@v3
       with:
-        images: khulnasoft-lab/cloudformat-code-server
+        images: khulnasoft/cloudformat-code-server
 
     - name: build and push code server image
       uses: docker/build-push-action@v2
@@ -44,7 +44,7 @@ jobs:
       id: meta-initializers
       uses: docker/metadata-action@v3
       with:
-        images: khulnasoft-lab/cloudformat-initializers
+        images: khulnasoft/cloudformat-initializers
 
     - name: build and push initializers image
       uses: docker/build-push-action@v2
@@ -57,7 +57,7 @@ jobs:
       id: meta-jupyter
       uses: docker/metadata-action@v3
       with:
-        images: khulnasoft-lab/cloudformat-jupyter
+        images: khulnasoft/cloudformat-jupyter
 
     - name: build and push jupyter image
       uses: docker/build-push-action@v2
@@ -70,7 +70,7 @@ jobs:
       id: meta-pgweb
       uses: docker/metadata-action@v3
       with:
-        images: khulnasoft-lab/cloudformat-pgweb
+        images: khulnasoft/cloudformat-pgweb
 
     - name: build and push pgweb image
       uses: docker/build-push-action@v2
