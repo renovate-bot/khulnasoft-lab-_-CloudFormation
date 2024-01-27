@@ -1,5 +1,5 @@
 <div align="center">
-	<img src="https://raw.githubusercontent.com/khulnasoft-lab/cloudformat/master/images/cnw.png" width="200" height="200">
+	<img src="https://raw.githubusercontent.com/khulnasoft-lab/CloudFormation/master/images/cnw.png" width="200" height="200">
 	<h1>Cloud-Native Workstation</h1>
   <p>A set of development and prototyping tools that can be useful in some cloud-native-centric projects</p>
   <br>
