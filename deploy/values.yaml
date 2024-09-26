@@ -179,7 +179,7 @@ guacamole:
 # Kanboard
 kanboard:
   enabled: false
-  image: kanboard/kanboard:v1.2.22
+  image: kanboard/kanboard:v1.2.40
   runsOnStandardVMs: true
   runsOnSpotVMs: true
   runsOnPreemptibleVMs: true
