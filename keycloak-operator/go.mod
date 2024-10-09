@@ -10,13 +10,13 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.9.0
 	k8s.io/api v0.20.6
 	k8s.io/apiextensions-apiserver v0.20.6
 	k8s.io/apimachinery v0.20.6
 	k8s.io/client-go v12.0.0+incompatible
-	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00
-	k8s.io/utils v0.0.0-20210802155522-efc7438f0176
+	k8s.io/kube-openapi v0.0.0-20241009091222-67ed5848f094
+	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 	sigs.k8s.io/controller-runtime v0.6.0
 
 )
