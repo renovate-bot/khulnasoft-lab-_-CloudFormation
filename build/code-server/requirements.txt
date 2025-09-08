@@ -1,4 +1,4 @@
-black~=23.3
+black~=24.3
 boto3~=1.26
 docker-compose~=1.29
 google-cloud-pubsub~=2.16
